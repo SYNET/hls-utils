@@ -36,17 +36,18 @@ def process(args):
 		log.error("REPLACE_PATH %s should be part of %s" % (PATH_REPLACE[0], ENCRYPTED_DIR))
 		return
 	
-	#mcastRecvProc = subprocess.Popen([EMCAST_PATH] + addr.split(':'), stdout=PIPE)
-	#if mcastRecvProc.poll() != None:
-	#	log.error('multicast reception process did not start. abort')
-	#	return
-	#
-	#segmenterProc = subprocess.Popen([SEGMENTER_PATH, '10', CLEAN_DIR, 'ts', 'ts'], stdin=mcastRecvProc.stdout, stdout=PIPE, stderr=PIPE)
-	#if segmenterProc.poll() != None:
-	#	log.error('segmentation process did not start. abort')
-	#	return
-	# input = segmenterProc.stdout
-	input = sys.stdin
+	mcastRecvProc = subprocess.Popen([EMCAST_PATH] + addr.split(':'), stdout=PIPE)
+	if mcastRecvProc.poll() != None:
+		log.error('multicast reception process did not start. abort')
+		return
+	
+	filePrefix = 'ts-%s'%channelID
+	segmenterProc = subprocess.Popen([SEGMENTER_PATH, '10', CLEAN_DIR, filePrefix, filePrefix], stdin=mcastRecvProc.stdout, stdout=PIPE, stderr=PIPE)
+	if segmenterProc.poll() != None:
+		log.error('segmentation process did not start. abort')
+		return
+	input = segmenterProc.stdout
+	#input = sys.stdin
 	
 	keyExpire = 0
 	while True:
@@ -55,9 +56,9 @@ def process(args):
 			key = genKey()
 			initVector = genKey()
 		out = input.readline()
-		#if out == '' and process.poll() != None:
-		#	# the segmenter process was terminated
-		#	break
+		if out == '' and process.poll() != None:
+			# the segmenter process was terminated
+			break
 		
 		param = SEGMENTER_OUTPUT_PATTERN.match(out)
 		if param is None:
