@@ -10,6 +10,7 @@
 #
 from settings import *
 
+import datetime
 import binascii
 import subprocess
 from subprocess import PIPE
@@ -28,28 +29,42 @@ def process(args):
 	addr		= args[1]
 	delaySeconds= int(args[2])
 
-	log = logging.getLogger('segmenter.py')
-	hdlr = logging.FileHandler('segmenter-%s-%s.log'%(channelID, addr.replace(':','_')))
-	formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-	hdlr.setFormatter(formatter)
-	log.addHandler(hdlr) 
-	log.setLevel(logging.DEBUG)
-	
 	if not os.path.exists(ENCRYPTED_DIR) or not os.path.isdir(ENCRYPTED_DIR):
-		log.error("%s does not exist or is not a folder"%ENCRYPTED_DIR)
+		sys.stderr.write("%s does not exist or is not a folder\n"%ENCRYPTED_DIR)
+		return
+	
+	if not os.path.exists(PATH_REPLACE[0]) or not os.path.isdir(PATH_REPLACE[0]):
+		sys.stderr.write("the replacement part %s is not a folder\n"%PATH_REPLACE[0])
 		return
 	
 	if ENCRYPTED_DIR.find(PATH_REPLACE[0]) > 0:
-		log.error("REPLACE_PATH %s should be part of %s" % (PATH_REPLACE[0], ENCRYPTED_DIR))
+		sys.stderr.write("REPLACE_PATH %s should be part of %s\n" % (PATH_REPLACE[0], ENCRYPTED_DIR))
 		return
+
+        tm = datetime.datetime.utcnow()
+        dirSuffix = "/%u%u%u_%u%uUTC__%s_%s" % (tm.year, tm.month, tm.day, tm.hour, tm.minute, channelID, addr.replace(':','_'))
+
+        try:
+                os.mkdir(CLEAN_DIR+dirSuffix)
+                os.mkdir(ENCRYPTED_DIR+dirSuffix)
+        except OSError, e:
+                sys.stderr.write('Failed create sub-directories %s : %s\n' % (dirSuffix, e))
+                return
 	
+        log = logging.getLogger('segmenter.py')
+        hdlr = logging.FileHandler(CLEAN_DIR+dirSuffix+'/segmenter.log')
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+        hdlr.setFormatter(formatter)
+        log.addHandler(hdlr)
+        log.setLevel(logging.DEBUG)
+
 	mcastRecvProc = subprocess.Popen([EMCAST_PATH, addr], stdin=None, stdout=PIPE)
 	if mcastRecvProc.poll() != None:
 		log.error('multicast reception process did not start. abort')
 		return
 	
 	filePrefix = 'ts-%s'%channelID
-	segmenterProc = subprocess.Popen([SEGMENTER_PATH, '10', CLEAN_DIR, filePrefix, filePrefix], stdin=mcastRecvProc.stdout, stderr=PIPE)
+	segmenterProc = subprocess.Popen([SEGMENTER_PATH, '10', CLEAN_DIR+dirSuffix, filePrefix, filePrefix], stdin=mcastRecvProc.stdout, stderr=PIPE)
 
 	if segmenterProc.poll() != None:
 		log.error('segmentation process did not start. abort')
@@ -74,12 +89,12 @@ def process(args):
 		param = SEGMENTER_OUTPUT_PATTERN.match(out)
 		if param is None:
 			# could be debug messages, etc - just skipping
-			log.warning('cant parse %s '%out)
+			log.warning(out)
 			continue
 		else:
 			param = param.groupdict()
 		
-		encPath		= os.path.normpath(ENCRYPTED_DIR + '/' + os.path.split(param['file'])[1])
+		encPath		= os.path.normpath(ENCRYPTED_DIR + dirSuffix+'/' + os.path.split(param['file'])[1])
 		
 		# got an output, now encrypt it
 		try:
@@ -111,10 +126,9 @@ def process(args):
 			resp.close() # not interested, if its HTTP OK
 		except urllib2.URLError, e:
 			log.error("%s returned status %s : %s" % (API_ADD_CHUNK, e.code, e.read()))
-			return False
 		
 		if not KEEP_CLEAN:
-			os.remove(cleanPath)
+			os.remove(param['file'])
 		
 	# segmenter shut down for some reason, we don't restart now
 	return

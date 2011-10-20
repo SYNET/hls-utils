@@ -128,7 +128,9 @@ int main(int argc, char **argv)
   config.encoding_profile = argv[4];
   config.input_filename = "pipe://1";
 
-  char *output_filename = malloc(sizeof(char) * (strlen(config.temp_directory) + 1 + strlen(config.filename_prefix) + 30));
+  unsigned int output_filename_size = sizeof(char) * (strlen(config.temp_directory) + 1 + strlen(config.filename_prefix) + 30);
+  char *output_filename = malloc(output_filename_size);
+ 
   if (!output_filename) 
   {
     fprintf(stderr, "Segmenter error: Could not allocate space for output filenames\n");
@@ -166,7 +168,7 @@ int main(int argc, char **argv)
   }
 
   //dump_format(input_context, 0, config.filename_prefix, 1);
-  printf("start time %lld %lld \n", input_context->start_time, input_context->timestamp);
+  fprintf(stderr, "segmenter-debug: start time %lld %lld \n", input_context->start_time, input_context->timestamp);
 
 #if LIBAVFORMAT_VERSION_MAJOR >= 52 && LIBAVFORMAT_VERSION_MINOR >= 45
   AVOutputFormat *output_format = av_guess_format("mpegts", NULL, NULL);
@@ -214,7 +216,7 @@ int main(int argc, char **argv)
         break;
       default:
         input_context->streams[i]->discard = AVDISCARD_ALL;
-        fprintf(stderr, "segmenter-debug: stream index %d from source woudl be skipped \n", i);
+        fprintf(stderr, "segmenter-warning: stream index %d from source woudl be skipped \n", i);
         break;
     }
   }
@@ -242,7 +244,7 @@ int main(int argc, char **argv)
   }
 
   unsigned int output_index = 1;
-  snprintf(output_filename, strlen(config.temp_directory) + 1 + strlen(config.filename_prefix) + 10, "%s/%s-%05u.ts", config.temp_directory, config.filename_prefix, output_index++);
+  snprintf(output_filename, output_filename_size, "%s/%s-%010u.ts", config.temp_directory, config.filename_prefix, output_index++);
   if (url_fopen(&output_context->pb, output_filename, URL_WRONLY) < 0) 
   {
     fprintf(stderr, "Segmenter error: Could not open '%s'\n", output_filename);
@@ -305,7 +307,7 @@ int main(int argc, char **argv)
 
       output_transfer_command(++last_segment, (segment_time-first_segment_time+on_start_timestamp), (segment_time-prev_segment_time), 0, output_filename);
 
-      snprintf(output_filename, strlen(config.temp_directory) + 1 + strlen(config.filename_prefix) + 10, "%s/%s-%05u.ts", config.temp_directory, config.filename_prefix, output_index++);
+      snprintf(output_filename, output_filename_size, "%s/%s-%010u.ts", config.temp_directory, config.filename_prefix, output_index++);
       if (url_fopen(&output_context->pb, output_filename, URL_WRONLY) < 0) 
       {
         fprintf(stderr, "Segmenter error: Could not open '%s'\n", output_filename);
