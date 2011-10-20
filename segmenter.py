@@ -13,7 +13,7 @@ from settings import *
 import binascii
 import subprocess
 from subprocess import PIPE
-import logging as log
+import logging 
 import os, re, sys
 import urllib, urllib2
 
@@ -21,12 +21,19 @@ import urllib, urllib2
 SEGMENTER_OUTPUT_PATTERN = re.compile("segmenter:\s*tstamp=(?P<startTimeEpoch>[0-9\.]+),\s*sequence=(?P<sequence>[0-9]+),\s*duration=(?P<duration>[0-9\.]+),\s*end=(?P<done>[0-9]),\s*file=(?P<file>\S+)$")
 
 def genKey():
-	return binascii.hexlify(subprocess.Popen(['openssl', 'rand', '16'], stdout=PIPE).communicate()[0])
+	return binascii.hexlify(subprocess.Popen(['openssl', 'rand', '16'], stdin=None, stderr=None, stdout=PIPE).communicate()[0])
 
 def process(args):
 	channelID 	= args[0]
 	addr		= args[1]
 	delaySeconds= int(args[2])
+
+	log = logging.getLogger('segmenter.py')
+	hdlr = logging.FileHandler('segmenter-%s-%s.log'%(channelID, addr.replace(':','_')))
+	formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+	hdlr.setFormatter(formatter)
+	log.addHandler(hdlr) 
+	log.setLevel(logging.DEBUG)
 	
 	if not os.path.exists(ENCRYPTED_DIR) or not os.path.isdir(ENCRYPTED_DIR):
 		log.error("%s does not exist or is not a folder"%ENCRYPTED_DIR)
@@ -36,34 +43,38 @@ def process(args):
 		log.error("REPLACE_PATH %s should be part of %s" % (PATH_REPLACE[0], ENCRYPTED_DIR))
 		return
 	
-	mcastRecvProc = subprocess.Popen([EMCAST_PATH] + addr.split(':'), stdout=PIPE)
+	mcastRecvProc = subprocess.Popen([EMCAST_PATH, addr], stdin=None, stdout=PIPE)
 	if mcastRecvProc.poll() != None:
 		log.error('multicast reception process did not start. abort')
 		return
 	
 	filePrefix = 'ts-%s'%channelID
-	segmenterProc = subprocess.Popen([SEGMENTER_PATH, '10', CLEAN_DIR, filePrefix, filePrefix], stdin=mcastRecvProc.stdout, stdout=PIPE, stderr=PIPE)
+	segmenterProc = subprocess.Popen([SEGMENTER_PATH, '10', CLEAN_DIR, filePrefix, filePrefix], stdin=mcastRecvProc.stdout, stderr=PIPE)
+
 	if segmenterProc.poll() != None:
 		log.error('segmentation process did not start. abort')
 		return
-	input = segmenterProc.stdout
+	input = segmenterProc.stderr
 	#input = sys.stdin
 	
 	keyExpire = 0
 	while True:
 		# check if we need generate a new AES key
-		if keyExpire == 0:
+		if keyExpire <= 0:
 			key = genKey()
 			initVector = genKey()
-		out = input.readline()
-		if out == '' and process.poll() != None:
+			keyExpire = KEY_ROTATE_SEGMENTS
+		out = input.readline().strip('\n\r')
+		if segmenterProc.poll() != None:
 			# the segmenter process was terminated
+			log.error("segmenter process terminated");
 			break
 		
+
 		param = SEGMENTER_OUTPUT_PATTERN.match(out)
 		if param is None:
 			# could be debug messages, etc - just skipping
-			log.error(out)
+			log.warning('cant parse %s '%out)
 			continue
 		else:
 			param = param.groupdict()
@@ -75,10 +86,11 @@ def process(args):
 			subprocess.check_call([OPENSSL_PATH, 'aes-128-cbc', '-e', 
 				'-in', 	param['file'],
 				'-out',	encPath,
-				'-p', '-nosalt',
+				'-nosalt',
 				'-K', key,
 				'-iv', initVector,
-			])
+			], stdin=None, stdout=None, stderr=None)
+			keyExpire -= 1
 		except subprocess.CalledProcessError as e:
 			log.error(e)
 			break

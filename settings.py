@@ -1,9 +1,9 @@
 # directory where to keep clean files
-CLEAN_DIR = '/tmp/segments'
+CLEAN_DIR = '/work/hls/clean'
 # where to store encrypted files
-ENCRYPTED_DIR = '/tmp/enc'
+ENCRYPTED_DIR = '/work/hls/enc'
 # set to True, to keep original FTA files 
-KEEP_CLEAN = False
+KEEP_CLEAN = True
 # how often to rotate AES key (# of segments)
 KEY_ROTATE_SEGMENTS = 10 
 # should we encrypt ot keep open? 
@@ -11,7 +11,7 @@ ENCRYPT	= True
 # path to utility joining multicast group and providing output to stdout
 EMCAST_PATH = 'emcast'
 # path to segmentation utility
-SEGMENTER_PATH = 'live_segmenter'
+SEGMENTER_PATH = './live_segmenter'
 # path to OpenSSL
 OPENSSL_PATH = 'openssl'
 # Call to register chunk
