@@ -24,6 +24,8 @@
 
 #include "libavformat/avformat.h"
 
+#define PKT_WRITE_FRAME_ERROR_LIMIT 50
+
 struct config_info
 {
   const char *input_filename;
@@ -31,6 +33,8 @@ struct config_info
   const char *temp_directory;
   const char *filename_prefix;
   const char *encoding_profile;
+  unsigned int start_from_segment;
+  unsigned int run_cycle;
 };
 
 static AVStream *add_output_stream(AVFormatContext *output_format_context, AVStream *input_stream) 
@@ -110,25 +114,11 @@ void output_transfer_command(const unsigned int sequence_number, const double se
   fprintf(stderr, "segmenter: %s\n\r", buffer);
 }
 
-int main(int argc, char **argv)
+
+int segment_process(struct config_info config)
+
 {
-  if(argc != 5)
-  {
-    fprintf(stderr, "Usage: %s <segment length> <output location> <filename prefix> <encoding profile>\n", argv[0]);
-    return 1;
-  }
-
-  struct config_info config;
-
-  memset(&config, 0, sizeof(struct config_info));
-
-  config.segment_length = atoi(argv[1]); 
-  config.temp_directory = argv[2];
-  config.filename_prefix = argv[3];
-  config.encoding_profile = argv[4];
-  config.input_filename = "pipe://1";
-
-  unsigned int output_filename_size = sizeof(char) * (strlen(config.temp_directory) + 1 + strlen(config.filename_prefix) + 30);
+  unsigned int output_filename_size = sizeof(char) * (strlen(config.temp_directory) + 1 + strlen(config.filename_prefix) + 100);
   char *output_filename = malloc(output_filename_size);
  
   if (!output_filename) 
@@ -244,7 +234,7 @@ int main(int argc, char **argv)
   }
 
   unsigned int output_index = 1;
-  snprintf(output_filename, output_filename_size, "%s/%s-%010u.ts", config.temp_directory, config.filename_prefix, output_index++);
+  snprintf(output_filename, output_filename_size, "%s/%s-%u-%010u.ts", config.temp_directory, config.filename_prefix, config.run_cycle, output_index++);
   if (url_fopen(&output_context->pb, output_filename, URL_WRONLY) < 0) 
   {
     fprintf(stderr, "Segmenter error: Could not open '%s'\n", output_filename);
@@ -259,11 +249,13 @@ int main(int argc, char **argv)
 
   unsigned int first_segment = 1;
   unsigned int last_segment = 0;
-
+  
   double prev_segment_time = 0;
   double first_segment_time = -1.0;
   int decode_done;
   double segment_time = 0;
+  
+  unsigned int pktWriteFrameErrorCount = 0;
   do 
   {
     AVPacket packet;
@@ -284,21 +276,35 @@ int main(int argc, char **argv)
     if (packet.stream_index == video_index && (packet.flags & PKT_FLAG_KEY)) 
     {
       segment_time = (double)video_stream->pts.val * video_stream->time_base.num / video_stream->time_base.den;
+      if (first_segment_time <= 0) 
+         fprintf(stderr, "segmenter-debug: received new time from video I frame : %lf\n", segment_time);
     }
     else if (video_index < 0) 
     {
       segment_time = (double)audio_stream->pts.val * audio_stream->time_base.num / audio_stream->time_base.den;
+      if (first_segment_time <= 0)
+         fprintf(stderr, "segmenter-debug: received new time from audio PTS : %lf\n", segment_time);
     }
     else 
     {
       segment_time = prev_segment_time;
     }
 
+    // initialy previous segment time would be zero, avoid receiving huge difference
+    if (prev_segment_time == 0 && segment_time > 0) {
+        prev_segment_time = segment_time;
+    }
+
     if (first_segment_time < 0 && segment_time > 0) {
 	first_segment_time = segment_time; // this is relative time in MS
     }
-    // fprintf(stderr, "segmenter-debug : cur=%lf prev=%lf onstartTS=%lf first=%lf\n", segment_time, prev_segment_time, on_start_timestamp, first_segment_time);
+    
+    //fprintf(stderr, "segmenter-debug: videoPTS=%lf audioPTS=%lf\n", (double)video_stream->pts.val * video_stream->time_base.num / video_stream->time_base.den, (double)audio_stream->pts.val * audio_stream->time_base.num / audio_stream->time_base.den); 
+    //fprintf(stderr, "segmenter-debug: cur=%.02lf prev=%.02lf onstartTS=%.02lf first=%.02lf\n", segment_time, prev_segment_time, on_start_timestamp, first_segment_time);
 
+    // timestamps in the streams received from IRDs are relative, 
+    // if there's a mismatch - time to restart segmentation process, as entire TS may change
+    
     // done writing the current file?
     if (segment_time - prev_segment_time >= config.segment_length) 
     {
@@ -307,7 +313,7 @@ int main(int argc, char **argv)
 
       output_transfer_command(++last_segment, (segment_time-first_segment_time+on_start_timestamp), (segment_time-prev_segment_time), 0, output_filename);
 
-      snprintf(output_filename, output_filename_size, "%s/%s-%010u.ts", config.temp_directory, config.filename_prefix, output_index++);
+      snprintf(output_filename, output_filename_size, "%s/%s-%u-%010u.ts", config.temp_directory, config.filename_prefix, config.run_cycle,output_index++);
       if (url_fopen(&output_context->pb, output_filename, URL_WRONLY) < 0) 
       {
         fprintf(stderr, "Segmenter error: Could not open '%s'\n", output_filename);
@@ -316,26 +322,34 @@ int main(int argc, char **argv)
 
       prev_segment_time = segment_time;
     }
-
+    
+    
     // because indicies from original and destination packets differ, perform correction
     if (index_map[packet.stream_index] < 0) {
-        ret = -1;
+       ret = -1;
     }else {
   	packet.stream_index = index_map[packet.stream_index];
     	ret = av_interleaved_write_frame(output_context, &packet);
     }
+
+    av_free_packet(&packet);
+    
     if (ret < 0) 
     {
-      //fprintf(stderr, "Segmenter error: Could not write frame of stream[%d]: %d\n", packet.stream_index, ret);
+      pktWriteFrameErrorCount ++;
+      if (first_segment_time > 0 && pktWriteFrameErrorCount > PKT_WRITE_FRAME_ERROR_LIMIT) {
+          fprintf(stderr, "segmenter-error: can't handle last %u packets. requesting process restart.");
+          break;
+      }
     }
     else if (ret > 0) 
     {
       fprintf(stderr, "Segmenter info: End of stream requested\n");
       av_free_packet(&packet);
       break;
+    }else{
+      pktWriteFrameErrorCount = 0; // clear av_interleaved_write_frame() error count
     }
-
-    av_free_packet(&packet);
   } while (!decode_done);
 
   av_write_trailer(output_context);
@@ -353,7 +367,40 @@ int main(int argc, char **argv)
 
   url_fclose(output_context->pb);
   av_free(output_context);
+  av_close_input_file(input_context);
 
       output_transfer_command(++last_segment, (segment_time-first_segment_time+on_start_timestamp), (segment_time-prev_segment_time), 1, output_filename);
   return 0;
+}
+
+int main(int argc, char **argv)
+{
+  if(argc != 5)
+  {
+    fprintf(stderr, "Usage: %s <segment length> <output location> <filename prefix> <encoding profile>\n", argv[0]);
+    return 1;
+  }
+
+  struct config_info config;
+
+  memset(&config, 0, sizeof(struct config_info));
+
+  config.segment_length = atoi(argv[1]); 
+  config.temp_directory = argv[2];
+  config.filename_prefix = argv[3];
+  config.encoding_profile = argv[4];
+  config.input_filename = "pipe://1";
+  config.start_from_segment = 0;
+  config.run_cycle = 1;
+
+  while (1) 
+  {
+	int ret = segment_process(config);
+	if (ret < 0) {
+		fprintf(stderr, "segmenter-fatal: need restart");
+		exit(ret);
+	}
+	config.run_cycle++;
+	config.start_from_segment+=100; // this would be handled by discontinuity on client
+  }
 }

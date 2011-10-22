@@ -42,7 +42,7 @@ def process(args):
 		return
 
         tm = datetime.datetime.utcnow()
-        dirSuffix = "/%u%u%u_%u%uUTC__%s_%s" % (tm.year, tm.month, tm.day, tm.hour, tm.minute, channelID, addr.replace(':','_'))
+        dirSuffix = "/%u%02u%02u_%02u%02uUTC__%s_%s" % (tm.year, tm.month, tm.day, tm.hour, tm.minute, channelID, addr.replace(':','_'))
 
         try:
                 os.mkdir(CLEAN_DIR+dirSuffix)
