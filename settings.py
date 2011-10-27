@@ -15,8 +15,8 @@ SEGMENTER_PATH = './live_segmenter'
 # path to OpenSSL
 OPENSSL_PATH = 'openssl'
 # Call to register chunk
-API_ADD_CHUNK = 'http://localhost:8000/synet/asset/chunk/add'
+API_ADD_CHUNK = 'http://localhost/synet/asset/chunk/add'
 # Which part of folder to replace to what, first should be part of ENCRYPTED_DIR
-PATH_REPLACE = ['/work/hls/enc', 'http://localhost/enc']
+PATH_REPLACE = ['/work/hls/enc', 'http://192.168.1.27/enc']
 # shared secred
 API_KEY = '64cff418758adca1c87d148adeda3144'

@@ -28,6 +28,8 @@ def process(args):
 	channelID 	= args[0]
 	addr		= args[1]
 	delaySeconds= int(args[2])
+	
+	sys.stdin = None
 
 	if not os.path.exists(ENCRYPTED_DIR) or not os.path.isdir(ENCRYPTED_DIR):
 		sys.stderr.write("%s does not exist or is not a folder\n"%ENCRYPTED_DIR)
@@ -42,11 +44,15 @@ def process(args):
 		return
 
         tm = datetime.datetime.utcnow()
-        dirSuffix = "/%u%02u%02u_%02u%02uUTC__%s_%s" % (tm.year, tm.month, tm.day, tm.hour, tm.minute, channelID, addr.replace(':','_'))
+        dirSuffix = "/%s__%u%02u%02u_%02u%02uUTC" % (channelID,  tm.year, tm.month, tm.day, tm.hour, tm.minute)
 
         try:
-                os.mkdir(CLEAN_DIR+dirSuffix)
-                os.mkdir(ENCRYPTED_DIR+dirSuffix)
+                
+		if not os.path.exists(CLEAN_DIR+dirSuffix):
+		    os.mkdir(CLEAN_DIR+dirSuffix)
+                
+		if not os.path.exists(ENCRYPTED_DIR+dirSuffix):
+		    os.mkdir(ENCRYPTED_DIR+dirSuffix)
         except OSError, e:
                 sys.stderr.write('Failed create sub-directories %s : %s\n' % (dirSuffix, e))
                 return
@@ -57,6 +63,9 @@ def process(args):
         hdlr.setFormatter(formatter)
         log.addHandler(hdlr)
         log.setLevel(logging.DEBUG)
+
+	
+	log.info("Starting segmentation process channel=%s from %s" % (channelID, addr))
 
 	mcastRecvProc = subprocess.Popen([EMCAST_PATH, addr], stdin=None, stdout=PIPE)
 	if mcastRecvProc.poll() != None:
@@ -125,7 +134,7 @@ def process(args):
 			resp = urllib2.urlopen(requestString)
 			resp.close() # not interested, if its HTTP OK
 		except urllib2.URLError, e:
-			log.error("%s returned status %s : %s" % (API_ADD_CHUNK, e.code, e.read()))
+			log.error("%s returned  %s " % (API_ADD_CHUNK, e.reason))
 		
 		if not KEEP_CLEAN:
 			os.remove(param['file'])
