@@ -115,6 +115,19 @@ void output_transfer_command(const unsigned int sequence_number, const double se
 }
 
 
+/*
+ * prints to STDERR a human-readable error code
+*/
+void print_av_error(const char* message, int av_ret_code)
+{
+	char errbuf[1024];
+	if (av_strerror(av_ret_code, errbuf, sizeof(errbuf)) < 0){
+		fprintf(stderr, "segmenter-error: %s : %d\n", message, av_ret_code);
+    }else{
+		fprintf(stderr, "segmenter-error: %s : [%d] %s\n", message, av_ret_code, errbuf);
+	}
+}
+
 int segment_process(struct config_info config)
 
 {
@@ -127,8 +140,7 @@ int segment_process(struct config_info config)
     exit(1);
   }
 
-  // ------------------ Done parsing input --------------
-
+   
   // we try to approximate the time of first received frame
   // by taking system timestamp and storing first frame timestamp
   time_t sys_time; time(&sys_time);
@@ -144,20 +156,21 @@ int segment_process(struct config_info config)
   }
 
   AVFormatContext *input_context = NULL;
-  int ret = avformat_open_input(&input_context, config.input_filename, input_format,  NULL);
+  int ret;
+  ret  = avformat_open_input(&input_context, config.input_filename, input_format,  NULL);
   if (ret != 0) 
   {
-    fprintf(stderr, "Segmenter error: Could not open input file, make sure it is an mpegts file: %d\n", ret);
+	print_av_error("Could not open input file, make sure it is an mpegts", ret);
     exit(1);
   }
 
-  if (avformat_find_stream_info(input_context, NULL) < 0) 
+  ret = avformat_find_stream_info(input_context, NULL);
+  if (ret < 0) 
   {
-    fprintf(stderr, "Segmenter error: Could not read stream information\n");
+	print_av_error("Could not read stream information", ret);
     exit(1);
   }
 
-  //dump_format(input_context, 0, config.filename_prefix, 1);
   fprintf(stderr, "segmenter-debug: start time %lld %lld \n", input_context->start_time, input_context->timestamp);
 
   AVOutputFormat *output_format = av_guess_format("mpegts", NULL, NULL);
@@ -263,9 +276,9 @@ int segment_process(struct config_info config)
       break;
     }
 
-    if (av_dup_packet(&packet) < 0) 
+    if ((ret = av_dup_packet(&packet)) < 0) 
     {
-      fprintf(stderr, "Segmenter error: Could not duplicate packet");
+      print_av_error("Could not duplicate packet", ret);
       av_free_packet(&packet);
       break;
     }
@@ -333,9 +346,10 @@ int segment_process(struct config_info config)
     
     if (ret < 0) 
     {
+      print_av_error("av_interleaved_write_frame ",ret);
       pktWriteFrameErrorCount ++;
       if (first_segment_time > 0 && pktWriteFrameErrorCount > PKT_WRITE_FRAME_ERROR_LIMIT) {
-          fprintf(stderr, "segmenter-error: can't handle last %u packets. requesting process restart.", pktWriteFrameErrorCount);
+          fprintf(stderr, "segmenter-error: can't handle last %u packets. requesting process restart.\n", pktWriteFrameErrorCount);
           break;
       }
     }
@@ -374,7 +388,7 @@ int main(int argc, char **argv)
 {
   if(argc != 5)
   {
-    fprintf(stderr, "Usage: %s <segment length> <output location> <filename prefix> <encoding profile>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <source> <segment length> <output location> <filename prefix> \n", argv[0]);
     return 1;
   }
 
@@ -382,11 +396,12 @@ int main(int argc, char **argv)
 
   memset(&config, 0, sizeof(struct config_info));
 
-  config.segment_length = atoi(argv[1]); 
-  config.temp_directory = argv[2];
-  config.filename_prefix = argv[3];
-  config.encoding_profile = argv[4];
-  config.input_filename = "pipe://1";
+  config.start_from_segment = 0;
+  config.input_filename = argv[1];
+  config.segment_length = atoi(argv[2]); 
+  config.temp_directory = argv[3];
+  config.filename_prefix = argv[4];
+  config.encoding_profile = config.filename_prefix;
   config.start_from_segment = 0;
   config.run_cycle = 1;
 
