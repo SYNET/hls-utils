@@ -1,6 +1,8 @@
 /*
- * Copyright (c) 2009 Carson McDonald
- *
+ * Copyright (c) 2011 SYNESIS 
+ * Originally created by and Copyright (c) 2009 Carson McDonald
+ * Originally created by and Copyright (c) 2009 Chase Douglas
+ * 
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version 2
  * as published by the Free Software Foundation.
@@ -14,7 +16,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
- * Originaly created by and Copyright (c) 2009 Chase Douglas
  */
 
 #include <stdio.h>
