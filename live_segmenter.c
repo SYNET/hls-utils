@@ -337,17 +337,22 @@ int segment_process(struct config_info config)
     
     // because indicies from original and destination packets differ, perform correction
     if (index_map[packet.stream_index] < 0) {
-       ret = -1;
-    }else {
-  	packet.stream_index = index_map[packet.stream_index];
+	  fprintf(stderr, "segmenter-debug: skipping packet pos=%lld size=%d stream=%d flags=%d pts=%lld\n", packet.pos, packet.size, packet.stream_index, packet.flags, packet.pts); 
+      ret = -1000;
+    }else if (packet.size > 0) {
+  	    packet.stream_index = index_map[packet.stream_index];
     	ret = av_interleaved_write_frame(output_context, &packet);
+        // fprintf(stderr, "segmenter-error: [%d] handling packet pos=%lld size=%d stream=%d flags=%d pts=%lld\n", ret, packet.pos, packet.size, packet.stream_index, packet.flags, packet.pts);
+	}else{
+		fprintf(stderr, "segmenter-debug: empty packet\n");
+		ret = -1001;
     }
-
     av_free_packet(&packet);
     
     if (ret < 0) 
     {
-      print_av_error("av_interleaved_write_frame ",ret);
+      // fprintf(stderr, "segmenter-error: handling packet pos=%lld size=%d stream=%d flags=%d pts=%lld\n", packet.pos, packet.size, packet.stream_index, packet.flags, packet.pts);
+      // print_av_error("av_interleaved_write_frame ",ret);
       pktWriteFrameErrorCount ++;
       if (first_segment_time > 0 && pktWriteFrameErrorCount > PKT_WRITE_FRAME_ERROR_LIMIT) {
           fprintf(stderr, "segmenter-error: can't handle last %u packets. requesting process restart.\n", pktWriteFrameErrorCount);

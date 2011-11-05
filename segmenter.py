@@ -74,7 +74,7 @@ def process(channelID, addrUrl, delaySeconds):
 	formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
 	hdlr.setFormatter(formatter)
 	log.addHandler(hdlr)
-	log.setLevel(logging.DEBUG)
+	log.setLevel(logging.INFO)
 
 	# MAIN LOOP
 	log.info("Starting segmentation process channel=%s from %s" % (channelID, mcastAddr))
